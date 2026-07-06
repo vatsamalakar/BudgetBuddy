@@ -4,7 +4,8 @@ from flask import (
     redirect,
     url_for,
     request,
-    flash
+    flash,
+    session
 )
 
 from flask_login import (
@@ -12,7 +13,8 @@ from flask_login import (
     login_user,
     logout_user,
     login_required,
-    current_user
+    current_user,
+    UserMixin
 )
 
 from werkzeug.security import (
@@ -22,8 +24,6 @@ from werkzeug.security import (
 
 from datetime import datetime
 from os import environ
-from pathlib import Path
-from tempfile import gettempdir
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from models import (
@@ -45,12 +45,10 @@ database_url = (
     or environ.get("POSTGRES_URL")
 )
 
+DEMO_MODE = bool(environ.get("VERCEL") and not database_url)
+
 if not database_url:
-    if environ.get("VERCEL"):
-        database_path = Path(gettempdir()) / "budget.db"
-        database_url = f"sqlite:///{database_path.as_posix()}"
-    else:
-        database_url = "sqlite:///budget.db"
+    database_url = "sqlite:///:memory:" if DEMO_MODE else "sqlite:///budget.db"
 
 if database_url.startswith("postgres://"):
     database_url = database_url.replace(
@@ -70,16 +68,46 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 
 
+class DemoUser(UserMixin):
+    def __init__(self, username, email=""):
+        self.id = username
+        self.username = username
+        self.email = email
+
+
 @login_manager.user_loader
 def load_user(user_id):
+    if DEMO_MODE:
+        account = session.get("account")
+
+        if account and account.get("username") == user_id:
+            return DemoUser(
+                account["username"],
+                account.get("email", "")
+            )
+
+        return None
+
     try:
         return User.query.get(int(user_id))
     except (TypeError, ValueError):
         return None
 
 
-with app.app_context():
-    db.create_all()
+if not DEMO_MODE:
+    with app.app_context():
+        db.create_all()
+
+
+def get_demo_transactions():
+    return session.get("transactions", [])
+
+
+def transaction_value(transaction, name):
+    if isinstance(transaction, dict):
+        return transaction[name]
+
+    return getattr(transaction, name)
 
 
 # =====================
@@ -108,6 +136,34 @@ def register():
             flash("Please fill out all fields")
             return redirect(
                 url_for("register")
+            )
+
+        if DEMO_MODE:
+            account = session.get("account")
+
+            if account and (
+                account.get("username") == username
+                or account.get("email") == email
+            ):
+                flash(
+                    "Username or email already exists"
+                )
+                return redirect(
+                    url_for("register")
+                )
+
+            session["account"] = {
+                "username": username,
+                "email": email,
+                "password": generate_password_hash(password)
+            }
+            session["transactions"] = []
+            login_user(DemoUser(username, email))
+
+            flash("Account created successfully")
+
+            return redirect(
+                url_for("dashboard")
             )
 
         try:
@@ -187,6 +243,30 @@ def login():
                 url_for("login")
             )
 
+        if DEMO_MODE:
+            account = session.get("account")
+
+            if account and account.get("username") == username:
+                if check_password_hash(
+                    account["password"],
+                    password
+                ):
+                    login_user(
+                        DemoUser(
+                            account["username"],
+                            account.get("email", "")
+                        )
+                    )
+
+                    return redirect(
+                        url_for("dashboard")
+                    )
+
+            flash("Invalid credentials")
+            return render_template(
+                "login.html"
+            )
+
         user = User.query.filter_by(
             username=username
         ).first()
@@ -232,20 +312,23 @@ def logout():
 @login_required
 def dashboard():
 
-    transactions = Transaction.query.filter_by(
-        user_id=current_user.id
-    ).all()
+    if DEMO_MODE:
+        transactions = get_demo_transactions()
+    else:
+        transactions = Transaction.query.filter_by(
+            user_id=current_user.id
+        ).all()
 
     income = sum(
-        t.amount
+        transaction_value(t, "amount")
         for t in transactions
-        if t.transaction_type == "Income"
+        if transaction_value(t, "transaction_type") == "Income"
     )
 
     expenses = sum(
-        t.amount
+        transaction_value(t, "amount")
         for t in transactions
-        if t.transaction_type == "Expense"
+        if transaction_value(t, "transaction_type") == "Expense"
     )
 
     balance = income - expenses
@@ -315,6 +398,27 @@ def add_transaction():
                 url_for("add_transaction")
             )
 
+        if DEMO_MODE:
+            transactions = get_demo_transactions()
+            transactions.append(
+                {
+                    "id": len(transactions) + 1,
+                    "transaction_type": transaction_type,
+                    "amount": amount,
+                    "category": category,
+                    "description": description,
+                    "date": transaction_date.isoformat()
+                }
+            )
+            session["transactions"] = transactions
+            session.modified = True
+
+            flash("Transaction added")
+
+            return redirect(
+                url_for("transactions")
+            )
+
         transaction = Transaction(
             user_id=current_user.id,
             transaction_type=transaction_type,
@@ -346,16 +450,23 @@ def add_transaction():
 @login_required
 def transactions():
 
-    transactions = (
-        Transaction.query
-        .filter_by(
-            user_id=current_user.id
+    if DEMO_MODE:
+        transactions = sorted(
+            get_demo_transactions(),
+            key=lambda transaction: transaction["date"],
+            reverse=True
         )
-        .order_by(
-            Transaction.date.desc()
+    else:
+        transactions = (
+            Transaction.query
+            .filter_by(
+                user_id=current_user.id
+            )
+            .order_by(
+                Transaction.date.desc()
+            )
+            .all()
         )
-        .all()
-    )
 
     return render_template(
         "transactions.html",
@@ -372,19 +483,24 @@ def transactions():
 @login_required
 def reports():
 
-    transactions = Transaction.query.filter_by(
-        user_id=current_user.id
-    ).all()
+    if DEMO_MODE:
+        transactions = get_demo_transactions()
+    else:
+        transactions = Transaction.query.filter_by(
+            user_id=current_user.id
+        ).all()
 
     categories = {}
 
     for t in transactions:
 
-        if t.transaction_type == "Expense":
+        if transaction_value(t, "transaction_type") == "Expense":
 
-            categories[t.category] = (
-                categories.get(t.category, 0)
-                + t.amount
+            category = transaction_value(t, "category")
+
+            categories[category] = (
+                categories.get(category, 0)
+                + transaction_value(t, "amount")
             )
 
     labels = list(categories.keys())
