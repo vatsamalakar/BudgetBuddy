@@ -1,0 +1,81 @@
+body{
+    background:#f4f7fc;
+    min-height:100vh;
+}
+
+.navbar{
+    box-shadow:0 2px 15px rgba(0,0,0,.1);
+}
+
+.card{
+    border:none;
+    border-radius:15px;
+    transition:0.3s;
+}
+
+.card:hover{
+    transform:translateY(-3px);
+}
+
+.btn{
+    border-radius:10px;
+}
+
+.table{
+    vertical-align:middle;
+}
+
+footer{
+    margin-top:50px;
+}
+
+.progress{
+    height:25px;
+    border-radius:10px;
+}
+
+.progress-bar{
+    font-weight:bold;
+}
+
+.dark-mode{
+    background:#121212;
+    color:white;
+}
+
+.dark-mode .card{
+    background:#1e1e1e;
+    color:white;
+}
+
+.dark-mode .table{
+    color:white;
+}
+
+.dark-mode .navbar{
+    background:#000 !important;
+}
+
+.dark-mode .form-control{
+    background:#2b2b2b;
+    color:white;
+    border:1px solid #444;
+}
+
+.dark-mode .form-select{
+    background:#2b2b2b;
+    color:white;
+    border:1px solid #444;
+}
+
+.dark-mode .card-body{
+    color:white;
+}
+
+.dark-mode .table-striped > tbody > tr:nth-of-type(odd){
+    color:white;
+}
+
+.dark-mode footer{
+    color:#aaa;
+}

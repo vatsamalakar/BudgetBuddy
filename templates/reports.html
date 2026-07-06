@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2 class="mb-4">
+    Financial Reports
+</h2>
+
+<!-- Hidden Data -->
+
+<div
+    id="chart-data"
+    data-labels='{{ labels|tojson|safe }}'
+    data-values='{{ values|tojson|safe }}'
+    hidden>
+</div>
+
+<div class="row">
+
+```
+<div class="col-md-6 mb-4">
+
+    <div class="card shadow border-0">
+
+        <div class="card-body">
+
+            <h4 class="mb-3">
+                Spending by Category
+            </h4>
+
+            <canvas id="pieChart"></canvas>
+
+        </div>
+
+    </div>
+
+</div>
+
+<div class="col-md-6 mb-4">
+
+    <div class="card shadow border-0">
+
+        <div class="card-body">
+
+            <h4 class="mb-3">
+                Monthly Expenses
+            </h4>
+
+            <canvas id="barChart"></canvas>
+
+        </div>
+
+    </div>
+
+</div>
+```
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+
+const chartData =
+    document.getElementById("chart-data");
+
+const labels =
+    JSON.parse(
+        chartData.dataset.labels
+    );
+
+const values =
+    JSON.parse(
+        chartData.dataset.values
+    );
+
+// Pie Chart
+
+new Chart(
+    document.getElementById("pieChart"),
+    {
+        type: "pie",
+
+        data: {
+            labels: labels,
+
+            datasets: [
+                {
+                    data: values
+                }
+            ]
+        }
+    }
+);
+
+// Bar Chart
+
+new Chart(
+    document.getElementById("barChart"),
+    {
+        type: "bar",
+
+        data: {
+
+            labels: labels,
+
+            datasets: [
+                {
+                    label: "Expenses",
+
+                    data: values
+                }
+            ]
+        },
+
+        options: {
+
+            responsive: true,
+
+            scales: {
+
+                y: {
+                    beginAtZero: true
+                }
+
+            }
+
+        }
+
+    }
+);
+
+</script>
+
+{% endblock %}
