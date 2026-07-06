@@ -22,7 +22,9 @@ from werkzeug.security import (
 
 from datetime import datetime
 from os import environ
-from sqlalchemy.exc import IntegrityError
+from pathlib import Path
+from tempfile import gettempdir
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from models import (
     db,
@@ -41,8 +43,14 @@ app.config["SECRET_KEY"] = environ.get(
 database_url = (
     environ.get("DATABASE_URL")
     or environ.get("POSTGRES_URL")
-    or "sqlite:///budget.db"
 )
+
+if not database_url:
+    if environ.get("VERCEL"):
+        database_path = Path(gettempdir()) / "budget.db"
+        database_url = f"sqlite:///{database_path.as_posix()}"
+    else:
+        database_url = "sqlite:///budget.db"
 
 if database_url.startswith("postgres://"):
     database_url = database_url.replace(
@@ -102,10 +110,17 @@ def register():
                 url_for("register")
             )
 
-        existing_user = User.query.filter(
-            (User.username == username) |
-            (User.email == email)
-        ).first()
+        try:
+            existing_user = User.query.filter(
+                (User.username == username) |
+                (User.email == email)
+            ).first()
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Database error. Please try again.")
+            return redirect(
+                url_for("register")
+            )
 
         if existing_user:
             flash(
@@ -133,6 +148,12 @@ def register():
             flash(
                 "Username or email already exists"
             )
+            return redirect(
+                url_for("register")
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            flash("Database error. Please try again.")
             return redirect(
                 url_for("register")
             )
