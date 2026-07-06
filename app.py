@@ -22,6 +22,7 @@ from werkzeug.security import (
 
 from datetime import datetime
 from os import environ
+from sqlalchemy.exc import IntegrityError
 
 from models import (
     db,
@@ -63,7 +64,10 @@ login_manager.login_view = "login"
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return User.query.get(int(user_id))
+    except (TypeError, ValueError):
+        return None
 
 
 with app.app_context():
@@ -88,9 +92,15 @@ def register():
 
     if request.method == "POST":
 
-        username = request.form["username"]
-        email = request.form["email"]
-        password = request.form["password"]
+        username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        if not username or not email or not password:
+            flash("Please fill out all fields")
+            return redirect(
+                url_for("register")
+            )
 
         existing_user = User.query.filter(
             (User.username == username) |
@@ -115,8 +125,17 @@ def register():
             password=hashed_password
         )
 
-        db.session.add(new_user)
-        db.session.commit()
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash(
+                "Username or email already exists"
+            )
+            return redirect(
+                url_for("register")
+            )
 
         flash("Account created successfully")
 
@@ -138,8 +157,14 @@ def login():
 
     if request.method == "POST":
 
-        username = request.form["username"]
-        password = request.form["password"]
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        if not username or not password:
+            flash("Please enter your username and password")
+            return redirect(
+                url_for("login")
+            )
 
         user = User.query.filter_by(
             username=username
@@ -226,20 +251,56 @@ def add_transaction():
 
     if request.method == "POST":
 
-        transaction = Transaction(
-            user_id=current_user.id,
-            transaction_type=request.form["type"],
-            amount=float(
-                request.form["amount"]
-            ),
-            category=request.form["category"],
-            description=request.form[
-                "description"
-            ],
-            date=datetime.strptime(
-                request.form["date"],
+        transaction_type = request.form.get("type", "").strip()
+        amount_raw = request.form.get("amount", "").strip()
+        category = request.form.get("category", "").strip()
+        description = request.form.get("description", "").strip()
+        date_raw = request.form.get("date", "").strip()
+
+        if transaction_type not in ("Income", "Expense"):
+            flash("Please choose a valid transaction type")
+            return redirect(
+                url_for("add_transaction")
+            )
+
+        if not category:
+            flash("Please choose a category")
+            return redirect(
+                url_for("add_transaction")
+            )
+
+        try:
+            amount = float(amount_raw)
+        except ValueError:
+            flash("Please enter a valid amount")
+            return redirect(
+                url_for("add_transaction")
+            )
+
+        if amount <= 0:
+            flash("Amount must be greater than zero")
+            return redirect(
+                url_for("add_transaction")
+            )
+
+        try:
+            transaction_date = datetime.strptime(
+                date_raw,
                 "%Y-%m-%d"
             ).date()
+        except ValueError:
+            flash("Please enter a valid date")
+            return redirect(
+                url_for("add_transaction")
+            )
+
+        transaction = Transaction(
+            user_id=current_user.id,
+            transaction_type=transaction_type,
+            amount=amount,
+            category=category,
+            description=description,
+            date=transaction_date
         )
 
         db.session.add(transaction)
